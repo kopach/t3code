@@ -144,6 +144,7 @@ export const make = Effect.gen(function* () {
             ...(input.target !== undefined ? { target: input.target } : {}),
             title: input.title,
             bodyFile: input.bodyFile,
+            ...(input.draft ? { draft: true } : {}),
           })
           .pipe(
             Effect.mapError(

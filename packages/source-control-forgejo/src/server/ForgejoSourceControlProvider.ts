@@ -379,6 +379,7 @@ export const make = Effect.gen(function* () {
             head: owner ? `${owner}:${head}` : head,
             title: input.title,
             body: yield* fs.readFileString(input.bodyFile),
+            ...(input.draft ? { draft: true } : {}),
           },
         });
       },

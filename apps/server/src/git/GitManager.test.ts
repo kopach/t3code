@@ -112,6 +112,7 @@ type FakeProviderCall =
       readonly baseRefName: string;
       readonly headSelector: string;
       readonly title: string;
+      readonly draft: boolean;
     }
   | { readonly operation: "getChangeRequest"; readonly reference: string }
   | {
@@ -131,7 +132,7 @@ const listedSelectors = (calls: ReadonlyArray<FakeProviderCall>) =>
 const created = (calls: ReadonlyArray<FakeProviderCall>) =>
   calls.flatMap((call) =>
     call.operation === "createChangeRequest"
-      ? [{ baseRefName: call.baseRefName, headSelector: call.headSelector }]
+      ? [{ baseRefName: call.baseRefName, headSelector: call.headSelector, draft: call.draft }]
       : [],
   );
 
@@ -478,6 +479,7 @@ function createFakeSourceControlProvider(scenario: FakeProviderScenario = {}): {
           baseRefName: input.baseRefName,
           headSelector: input.headSelector,
           title: input.title,
+          draft: input.draft === true,
         }),
       getDefaultBranch: (input) =>
         record(input.cwd, { operation: "getDefaultBranch" }).pipe(
@@ -3497,7 +3499,10 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       expect(result.pr.status).toBe("created");
       expect(
         created(providerCalls).some(
-          (call) => call.baseRefName === "master" && call.headSelector === "feature/master-default",
+          (call) =>
+            call.baseRefName === "master" &&
+            call.headSelector === "feature/master-default" &&
+            call.draft,
         ),
       ).toBe(true);
     }),
@@ -4113,8 +4118,12 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
           expect.soft(generated.changeRequestTemplate).toBe("Local branch template");
         }
         expect.soft(created(providerCalls)).toEqual([
-          { baseRefName: "upstream/release", headSelector: "feature/from-local" },
-          { baseRefName: "upstream/release", headSelector: "feature/legacy-local-base" },
+          { baseRefName: "upstream/release", headSelector: "feature/from-local", draft: true },
+          {
+            baseRefName: "upstream/release",
+            headSelector: "feature/legacy-local-base",
+            draft: true,
+          },
         ]);
       }),
   );
