@@ -1,6 +1,11 @@
 import { isMacPlatform } from "../../lib/utils";
 import { SELECTION_MULTI_CLICK_INTERVAL_MS } from "../../lib/selectionActions";
-import { collectWrappedTerminalLinkLine, extractTerminalLinks } from "../../terminal-links";
+import {
+  collectWrappedTerminalLinkLine,
+  extractTerminalLinks,
+  isTerminalLinkActivation,
+  isTerminalUrl,
+} from "../../terminal-links";
 import {
   GHOSTTY_CELL_WIDE,
   GhosttyTerminalCore,
@@ -598,6 +603,7 @@ export class GhosttyTerminalSurface {
   } | null = null;
   private hoveredLink: TerminalLinkWithRange | null = null;
   private hoverPointer: { x: number; y: number } | null = null;
+  private linkModifierHeld = false;
   private linkHoverCandidate: TerminalLinkWithRange | null = null;
   private linkHoverTimer: number | null = null;
   private linkRowStability: Array<{
@@ -1244,14 +1250,29 @@ export class GhosttyTerminalSurface {
 
   // A release elsewhere must not leave a press for a later app shortcut to inherit.
   private readonly onWindowKeyUp = (event: KeyboardEvent) => {
+    this.syncLinkModifier(event);
     if (event.composedPath().includes(this.input)) return;
     this.encodedKeyCodes.delete(event.code);
   };
 
   // A fresh press proves a release was missed; repeats can span a focus round trip.
   private readonly onWindowKeyDown = (event: KeyboardEvent) => {
+    this.syncLinkModifier(event);
     if (!event.repeat) this.encodedKeyCodes.delete(event.code);
   };
+
+  private readonly onWindowBlur = () => {
+    if (!this.linkModifierHeld) return;
+    this.linkModifierHeld = false;
+    if (this.hoverPointer !== null) this.refreshHoveredLink();
+  };
+
+  private syncLinkModifier(event: Pick<MouseEvent, "metaKey" | "ctrlKey">): void {
+    const held = isTerminalLinkActivation(event);
+    if (held === this.linkModifierHeld) return;
+    this.linkModifierHeld = held;
+    if (this.hoverPointer !== null) this.refreshHoveredLink();
+  }
 
   private readonly onFocus = () => {
     this.focused = true;
@@ -1399,7 +1420,14 @@ export class GhosttyTerminalSurface {
     if (event.button !== 0) return;
     const clickCount = this.recordSelectionClick(event);
     const link = this.linkAt(event.clientX, event.clientY, true);
-    if (link && !event.shiftKey && clickCount === 1) {
+    // Paths open with Command-click or Ctrl-click. URLs still open on a plain click so the
+    // modifier can force the system browser.
+    if (
+      link &&
+      !event.shiftKey &&
+      clickCount === 1 &&
+      (isTerminalUrl(link.text) || isTerminalLinkActivation(event))
+    ) {
       event.preventDefault();
       event.stopPropagation();
       this.linkActivationPointerId = event.pointerId;
@@ -1588,6 +1616,7 @@ export class GhosttyTerminalSurface {
 
   private updateHoverCursor(event: PointerEvent): void {
     this.hoverPointer = { x: event.clientX, y: event.clientY };
+    this.linkModifierHeld = isTerminalLinkActivation(event);
     this.refreshHoveredLink();
   }
 
@@ -1607,7 +1636,12 @@ export class GhosttyTerminalSurface {
     const pointer = this.hoverPointer;
     const link = pointer ? this.findLinkAt(pointer.x, pointer.y) : null;
     this.updateLinkHover(link);
-    this.setHoveredLink(link && this.options.canActivateLink?.(link.text) !== false ? link : null);
+    const activatable = link && this.options.canActivateLink?.(link.text) !== false ? link : null;
+    this.setHoveredLink(
+      activatable !== null && (isTerminalUrl(activatable.text) || this.linkModifierHeld)
+        ? activatable
+        : null,
+    );
   }
 
   private updateLinkHover(link: TerminalLinkWithRange | null): void {
@@ -1890,6 +1924,7 @@ export class GhosttyTerminalSurface {
     this.scrollbar.addEventListener("keydown", this.onScrollbarKeyDown);
     window.addEventListener("pointerup", this.onWindowPointerRelease);
     window.addEventListener("pointercancel", this.onWindowPointerRelease);
+    window.addEventListener("blur", this.onWindowBlur);
   }
 
   private removeEvents(): void {
@@ -1920,6 +1955,7 @@ export class GhosttyTerminalSurface {
     this.scrollbar.removeEventListener("keydown", this.onScrollbarKeyDown);
     window.removeEventListener("pointerup", this.onWindowPointerRelease);
     window.removeEventListener("pointercancel", this.onWindowPointerRelease);
+    window.removeEventListener("blur", this.onWindowBlur);
   }
 
   private scrollViewport(deltaRows: number): void {
