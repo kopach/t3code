@@ -209,17 +209,20 @@ describe("GhosttyTerminalSurface visibility", () => {
         modifiers: boolean | Partial<Pick<MouseEvent, "ctrlKey" | "metaKey" | "shiftKey">> = {},
         button = 0,
         clientY = 5,
+        timeStamp?: number,
       ) {
-        canvas.dispatchEvent(
-          Object.assign(new Event(type, { cancelable: true }), {
-            clientX,
-            clientY,
-            pointerId: 1,
-            button,
-            buttons,
-            ...(typeof modifiers === "boolean" ? { shiftKey: modifiers } : modifiers),
-          }),
-        );
+        const event = Object.assign(new Event(type, { cancelable: true }), {
+          clientX,
+          clientY,
+          pointerId: 1,
+          button,
+          buttons,
+          ...(typeof modifiers === "boolean" ? { shiftKey: modifiers } : modifiers),
+        });
+        if (timeStamp !== undefined) {
+          Object.defineProperty(event, "timeStamp", { value: timeStamp });
+        }
+        canvas.dispatchEvent(event);
       },
       touch(type: string, clientY: number, pointerId = 2) {
         canvas.dispatchEvent(
@@ -537,6 +540,73 @@ describe("GhosttyTerminalSurface visibility", () => {
     expect(onLinkActivate).not.toHaveBeenCalled();
   });
 
+  it("opens a file path only with the terminal modifier and still opens a URL on click", async () => {
+    vi.stubGlobal("navigator", { platform: "MacIntel" });
+    const harness = createHarness();
+    const onLinkActivate = vi.fn();
+    const surface = await harness.create({ onLinkActivate });
+    surface.write("src/main.ts");
+    harness.flushFrame();
+
+    harness.pointer("pointermove", 5, 0);
+    expect(harness.canvas.style.cursor).toBe("");
+    window.dispatchEvent(
+      Object.assign(new Event("keydown", { cancelable: true }), {
+        key: "Meta",
+        code: "MetaLeft",
+        metaKey: true,
+        ctrlKey: false,
+        repeat: false,
+      }),
+    );
+    expect(harness.canvas.style.cursor).toBe("pointer");
+    window.dispatchEvent(
+      Object.assign(new Event("keyup", { cancelable: true }), {
+        key: "Meta",
+        code: "MetaLeft",
+        metaKey: false,
+        ctrlKey: false,
+        repeat: false,
+      }),
+    );
+    expect(harness.canvas.style.cursor).toBe("");
+
+    let timeStamp = 0;
+    const click = (
+      modifiers: Partial<Pick<MouseEvent, "ctrlKey" | "metaKey">> = {},
+      moveTo: number | null = null,
+    ) => {
+      timeStamp += 1_000;
+      harness.pointer("pointerdown", 5, 1, modifiers, 0, 5, timeStamp);
+      if (moveTo !== null) harness.pointer("pointermove", moveTo, 1, modifiers, 0, 5, timeStamp);
+      harness.pointer("pointerup", moveTo ?? 5, 0, modifiers, 0, 5, timeStamp);
+    };
+
+    click();
+    click({ ctrlKey: true });
+    expect(onLinkActivate).not.toHaveBeenCalled();
+    expect(surface.getSelection()).toBe("");
+
+    click({}, 80);
+    expect(onLinkActivate).not.toHaveBeenCalled();
+    expect(surface.getSelection().length).toBeGreaterThan(1);
+
+    click({ metaKey: true });
+    expect(onLinkActivate).toHaveBeenCalledTimes(1);
+    expect(onLinkActivate).toHaveBeenCalledWith(
+      "src/main.ts",
+      expect.objectContaining({ metaKey: true }),
+    );
+
+    onLinkActivate.mockClear();
+    surface.write("\x1b[2J\x1b[Hhttps://example.com");
+    harness.flushFrame();
+    click();
+    expect(onLinkActivate).toHaveBeenCalledWith("https://example.com", expect.anything());
+    harness.pointer("pointermove", 5, 0);
+    expect(harness.canvas.style.cursor).toBe("pointer");
+  });
+
   it.each([
     { scenario: "missing", exists: false },
     { scenario: "file", exists: true },
@@ -568,16 +638,16 @@ describe("GhosttyTerminalSurface visibility", () => {
       harness.flushFrame();
       surface.selectAll();
       expect(surface.getSelection()).toBe("src/main.ts");
-      harness.pointer("pointerdown", 5, 1);
+      harness.pointer("pointerdown", 5, 1, { ctrlKey: true });
       expect(validateLink).toHaveBeenCalledWith("src/main.ts");
       if (scenario === "dragged") harness.pointer("pointermove", 45, 1);
-      harness.pointer("pointerup", 5, 0);
+      harness.pointer("pointerup", 5, 0, { ctrlKey: true });
       expect(onLinkActivate).not.toHaveBeenCalled();
       if (scenario === "replaced") {
         surface.write("\r\x1b[2Ksrc/other.ts");
         harness.flushFrame();
       }
-      if (scenario === "superseded") harness.pointer("pointerdown", 5, 1);
+      if (scenario === "superseded") harness.pointer("pointerdown", 5, 1, { ctrlKey: true });
       if (scenario === "hidden") {
         surface.setVisible(false);
         surface.setVisible(true);
