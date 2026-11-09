@@ -17,6 +17,10 @@ then copy. Cmd+A on macOS and Ctrl+Shift+A elsewhere select the same output.
 Ctrl+A still moves to the beginning of shell input on Windows and Linux.
 Jump to latest in the context menu returns to the current output.
 
+## Size
+
+The bottom terminal stays in the thread column. Maximizing it fills the height above the composer and leaves the sidebar and right panel in place. Use the maximize button on the terminal, or `mod+shift+j` while the terminal is focused. The same chord toggles the preview when the terminal is not focused. Drag the top edge to resize; that restores the previous height.
+
 ## fish
 
 T3 Code starts fish with `no-query-term`, avoiding startup waits for terminal

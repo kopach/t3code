@@ -112,6 +112,7 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
     LastInvokedScriptByProjectSchema,
   );
   const storeSetTerminalOpen = useTerminalUiStateStore((s) => s.setTerminalOpen);
+  const storeSetTerminalMaximized = useTerminalUiStateStore((s) => s.setTerminalMaximized);
   const storeEnsureTerminal = useTerminalUiStateStore((state) => state.ensureTerminal);
   const storeSplitTerminal = useTerminalUiStateStore((s) => s.splitTerminal);
   const storeSplitTerminalVertical = useTerminalUiStateStore((s) => s.splitTerminalVertical);
@@ -412,6 +413,20 @@ export function useChatTerminalActions(input: ChatTerminalActionsInput) {
       )
         return false;
       toggleTerminalVisibility();
+    },
+    "terminal.toggleMaximized": ({ event }) => {
+      if (!activeThreadRef || event.repeat) return false;
+      const nextMaximized = !terminalUiState.terminalMaximized;
+      if (
+        nextMaximized &&
+        !terminalUiState.terminalOpen &&
+        !readEnvironmentScope(environmentId, AuthTerminalReadScope) &&
+        !hasTerminalWriteAccess()
+      ) {
+        return false;
+      }
+      if (nextMaximized && !terminalUiState.terminalOpen) toggleTerminalVisibility();
+      storeSetTerminalMaximized(activeThreadRef, nextMaximized);
     },
     "terminal.split": ({ terminalFocusOwner }) => {
       if (!hasTerminalWriteAccess()) return false;

@@ -251,6 +251,38 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       }).pipe(Effect.provide(layerKeybindings())),
   );
 
+  it.effect("gives mod+shift+j to terminal maximize while a terminal is focused, once", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const preview = { key: "mod+shift+j", command: "preview.toggle" } as const;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [preview]);
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepStrictEqual(
+        persisted.filter((entry) => entry.command === "preview.toggle"),
+        [{ ...preview, when: "!terminalFocus" }],
+      );
+      assert.isTrue(
+        persisted.some(
+          (entry) =>
+            entry.command === "terminal.toggleMaximized" &&
+            entry.key === "mod+shift+j" &&
+            entry.when === "terminalFocus",
+        ),
+      );
+
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [preview]);
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const rewritten = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepStrictEqual(
+        rewritten.filter((entry) => entry.command === "preview.toggle"),
+        [preview],
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
   it.effect("adds a late default to an existing command once", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;

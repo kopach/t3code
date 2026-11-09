@@ -767,6 +767,24 @@ describe("isRichTextBoldShortcut", () => {
 });
 
 describe("composer and pull request shortcuts", () => {
+  it("maximizes the terminal with mod+shift+j only while a terminal is focused", () => {
+    const chord = event({ key: "j", metaKey: true, shiftKey: true });
+    assert.strictEqual(
+      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: true },
+      }),
+      "terminal.toggleMaximized",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
+      "preview.toggle",
+    );
+  });
+
   it("uses the dictation chord outside the terminal and preserves terminal split", () => {
     const chord = event({ key: "d", ctrlKey: true, shiftKey: true });
     assert.strictEqual(

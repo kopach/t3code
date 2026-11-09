@@ -12,6 +12,7 @@ import {
 
 interface ThreadTerminalUiState {
   terminalOpen: boolean;
+  terminalMaximized: boolean;
   terminalHeight: number;
   terminalIds: string[];
   activeTerminalId: string;
@@ -164,6 +165,7 @@ function threadTerminalUiStateEqual(
 ): boolean {
   return (
     left.terminalOpen === right.terminalOpen &&
+    left.terminalMaximized === right.terminalMaximized &&
     left.terminalHeight === right.terminalHeight &&
     left.activeTerminalId === right.activeTerminalId &&
     left.activeTerminalGroupId === right.activeTerminalGroupId &&
@@ -174,6 +176,7 @@ function threadTerminalUiStateEqual(
 
 const DEFAULT_THREAD_TERMINAL_UI_STATE: ThreadTerminalUiState = Object.freeze({
   terminalOpen: false,
+  terminalMaximized: false,
   terminalHeight: DEFAULT_THREAD_TERMINAL_HEIGHT,
   terminalIds: [],
   activeTerminalId: "",
@@ -209,6 +212,7 @@ function normalizeThreadTerminalUiState(state: ThreadTerminalUiState): ThreadTer
 
   const normalized: ThreadTerminalUiState = {
     terminalOpen: state.terminalOpen,
+    terminalMaximized: state.terminalMaximized === true,
     terminalHeight:
       Number.isFinite(state.terminalHeight) && state.terminalHeight > 0
         ? state.terminalHeight
@@ -353,10 +357,22 @@ function setThreadTerminalHeight(
   height: number,
 ): ThreadTerminalUiState {
   const normalized = normalizeThreadTerminalUiState(state);
-  if (!Number.isFinite(height) || height <= 0 || normalized.terminalHeight === height) {
+  if (!Number.isFinite(height) || height <= 0) {
     return normalized;
   }
-  return { ...normalized, terminalHeight: height };
+  if (normalized.terminalHeight === height && !normalized.terminalMaximized) {
+    return normalized;
+  }
+  return { ...normalized, terminalHeight: height, terminalMaximized: false };
+}
+
+function setThreadTerminalMaximized(
+  state: ThreadTerminalUiState,
+  maximized: boolean,
+): ThreadTerminalUiState {
+  const normalized = normalizeThreadTerminalUiState(state);
+  if (normalized.terminalMaximized === maximized) return normalized;
+  return { ...normalized, terminalMaximized: maximized };
 }
 
 function splitThreadTerminal(
@@ -441,6 +457,7 @@ function closeThreadTerminal(
 
   return normalizeThreadTerminalUiState({
     terminalOpen: normalized.terminalOpen,
+    terminalMaximized: normalized.terminalMaximized,
     terminalHeight: normalized.terminalHeight,
     terminalIds: remainingTerminalIds,
     activeTerminalId: nextActiveTerminalId,
@@ -563,6 +580,7 @@ interface TerminalUiStateStoreState {
   suppressedTerminalIdsByThreadKey: Record<string, string[]>;
   setTerminalOpen: (threadRef: ScopedThreadRef, open: boolean) => void;
   setTerminalHeight: (threadRef: ScopedThreadRef, height: number) => void;
+  setTerminalMaximized: (threadRef: ScopedThreadRef, maximized: boolean) => void;
   splitTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
   splitTerminalVertical: (threadRef: ScopedThreadRef, terminalId: string) => void;
   newTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
@@ -637,6 +655,8 @@ export const useTerminalUiStateStore = create<TerminalUiStateStoreState>()(
         },
         setTerminalHeight: (threadRef, height) =>
           updateTerminal(threadRef, (state) => setThreadTerminalHeight(state, height)),
+        setTerminalMaximized: (threadRef, maximized) =>
+          updateTerminal(threadRef, (state) => setThreadTerminalMaximized(state, maximized)),
         splitTerminal: (threadRef, terminalId) =>
           updateTerminal(threadRef, (state) => splitThreadTerminal(state, terminalId), {
             terminalId,

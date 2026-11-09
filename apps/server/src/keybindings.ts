@@ -94,6 +94,27 @@ function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): bool
   return keybindingRuleIdentity(left) === keybindingRuleIdentity(right);
 }
 
+const PREVIEW_TOGGLE_TERMINAL_EXCLUSION_ID = "preview.toggle:exclude-terminal-focus";
+
+function withPreviewToggleTerminalExclusion(rules: readonly KeybindingRule[]): {
+  readonly rules: readonly KeybindingRule[];
+  readonly changed: boolean;
+} {
+  let changed = false;
+  const next = rules.map((rule) => {
+    if (
+      rule.command !== "preview.toggle" ||
+      rule.key !== "mod+shift+j" ||
+      rule.when !== undefined
+    ) {
+      return rule;
+    }
+    changed = true;
+    return { ...rule, when: "!terminalFocus" };
+  });
+  return changed ? { rules: next, changed } : { rules, changed };
+}
+
 const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
   readonly id: string;
   readonly alongside: KeybindingRule;
@@ -450,12 +471,11 @@ const make = Effect.gen(function* () {
       const configExists = yield* readConfigExists;
       if (!configExists) {
         yield* writeConfigAtomically(DEFAULT_KEYBINDINGS);
-        if (pendingLateDefaults.length > 0) {
-          yield* recordAppliedMigrations([
-            ...appliedMigrationIds,
-            ...LATE_DEFAULT_KEYBINDINGS.map((late) => late.id),
-          ]);
-        }
+        yield* recordAppliedMigrations([
+          ...appliedMigrationIds,
+          ...LATE_DEFAULT_KEYBINDINGS.map((late) => late.id),
+          PREVIEW_TOGGLE_TERMINAL_EXCLUSION_ID,
+        ]);
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }
@@ -473,7 +493,14 @@ const make = Effect.gen(function* () {
         return;
       }
       const customConfig = runtimeConfig.keybindings;
-      const existingCommands = new Set(customConfig.map((entry) => entry.command));
+      const previewExclusionPending = !appliedMigrationIds.has(
+        PREVIEW_TOGGLE_TERMINAL_EXCLUSION_ID,
+      );
+      const previewExclusion = previewExclusionPending
+        ? withPreviewToggleTerminalExclusion(customConfig)
+        : { rules: customConfig, changed: false };
+      const configForDefaults = previewExclusion.rules;
+      const existingCommands = new Set(configForDefaults.map((entry) => entry.command));
       const missingDefaults: KeybindingRule[] = [];
       const shortcutConflictWarnings: Array<{
         defaultCommand: KeybindingRule["command"];
@@ -485,7 +512,7 @@ const make = Effect.gen(function* () {
         if (existingCommands.has(defaultRule.command)) {
           continue;
         }
-        const conflictingEntry = customConfig.find((entry) =>
+        const conflictingEntry = configForDefaults.find((entry) =>
           hasSameShortcutContext(entry, defaultRule),
         );
         if (conflictingEntry) {
@@ -501,8 +528,8 @@ const make = Effect.gen(function* () {
       }
       for (const { alongside, rule } of pendingLateDefaults) {
         if (
-          customConfig.some((entry) => isSameKeybindingRule(entry, alongside)) &&
-          !customConfig.some((entry) => hasSameShortcutContext(entry, rule))
+          configForDefaults.some((entry) => isSameKeybindingRule(entry, alongside)) &&
+          !configForDefaults.some((entry) => hasSameShortcutContext(entry, rule))
         ) {
           missingDefaults.push(rule);
         }
@@ -519,7 +546,7 @@ const make = Effect.gen(function* () {
       }
       if (missingDefaults.length > 0) {
         const matchingDefaults = Array.filterMap(DEFAULT_KEYBINDINGS, (defaultRule) =>
-          customConfig.some((entry) => isSameKeybindingRule(entry, defaultRule))
+          configForDefaults.some((entry) => isSameKeybindingRule(entry, defaultRule))
             ? Result.succeed(defaultRule.command)
             : Result.failVoid,
         );
@@ -532,7 +559,7 @@ const make = Effect.gen(function* () {
       }
 
       // Put defaults before persisted rules so custom shortcuts win overlapping conditions.
-      const availableSlots = Math.max(0, MAX_KEYBINDINGS_COUNT - customConfig.length);
+      const availableSlots = Math.max(0, MAX_KEYBINDINGS_COUNT - configForDefaults.length);
       const defaultsToAppend = missingDefaults.slice(0, availableSlots);
       const skippedDefaults = missingDefaults.slice(availableSlots);
       if (skippedDefaults.length > 0) {
@@ -542,17 +569,18 @@ const make = Effect.gen(function* () {
           commands: skippedDefaults.map((rule) => rule.command),
         });
       }
-      if (defaultsToAppend.length > 0) {
-        yield* writeConfigAtomically([...defaultsToAppend, ...customConfig]);
+      if (defaultsToAppend.length > 0 || previewExclusion.changed) {
+        yield* writeConfigAtomically([...defaultsToAppend, ...configForDefaults]);
       }
       const settledLateDefaults = pendingLateDefaults.filter(
         (late) => !skippedDefaults.includes(late.rule),
       );
-      if (settledLateDefaults.length > 0) {
-        yield* recordAppliedMigrations([
-          ...appliedMigrationIds,
-          ...settledLateDefaults.map((late) => late.id),
-        ]);
+      const settledMigrationIds = [
+        ...settledLateDefaults.map((late) => late.id),
+        ...(previewExclusionPending ? [PREVIEW_TOGGLE_TERMINAL_EXCLUSION_ID] : []),
+      ];
+      if (settledMigrationIds.length > 0) {
+        yield* recordAppliedMigrations([...appliedMigrationIds, ...settledMigrationIds]);
       }
       yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
     }),

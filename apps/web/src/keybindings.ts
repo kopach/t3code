@@ -316,6 +316,14 @@ export function modelPickerJumpIndexFromCommand(command: string): number | null 
   return index === -1 ? null : index;
 }
 
+export function isTerminalToggleMaximizedShortcut(
+  event: ShortcutEventLike,
+  keybindings: ResolvedKeybindingsConfig,
+  options?: ShortcutMatchOptions,
+): boolean {
+  return matchesCommandShortcut(event, keybindings, "terminal.toggleMaximized", options);
+}
+
 export function isTerminalToggleShortcut(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,

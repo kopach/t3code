@@ -158,6 +158,10 @@ a shortcut.
 `thread.stop` interrupts the running turn in the focused thread. It has no default
 shortcut; assign one in **Settings → Keybindings**.
 
+`terminal.toggleMaximized` (`mod+shift+j` while a terminal is focused) expands the
+bottom terminal to the height of the thread column. The sidebar and right panel
+stay where they are. Outside a terminal, `mod+shift+j` still toggles the preview.
+
 `thread.undo` (`mod+z` by default) reverses the actions shown in the notice at the
 bottom of the sidebar, such as unpin, settle, snooze, archive, or discarding a
 draft. Consecutive
