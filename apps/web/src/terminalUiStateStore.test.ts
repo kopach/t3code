@@ -106,6 +106,28 @@ describe("terminalUiStateStore actions", () => {
     });
   });
 
+  it("maximizes vertically without forgetting the previous height", () => {
+    const store = useTerminalUiStateStore.getState();
+    store.setTerminalOpen(THREAD_REF, true);
+    store.setTerminalHeight(THREAD_REF, 280);
+    store.setTerminalMaximized(THREAD_REF, true);
+
+    const maximized = selectThreadTerminalUiState(
+      useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+      THREAD_REF,
+    );
+    expect(maximized.terminalMaximized).toBe(true);
+    expect(maximized.terminalHeight).toBe(280);
+
+    store.setTerminalHeight(THREAD_REF, 280);
+    const restored = selectThreadTerminalUiState(
+      useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+      THREAD_REF,
+    );
+    expect(restored.terminalMaximized).toBe(false);
+    expect(restored.terminalHeight).toBe(280);
+  });
+
   it("resets to default and clears persisted entry when closing the last terminal", () => {
     const store = useTerminalUiStateStore.getState();
     store.newTerminal(THREAD_REF, "terminal-only");

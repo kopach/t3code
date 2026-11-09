@@ -153,6 +153,7 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
     (session) => session.target.terminalId,
   );
   const storeSetTerminalHeight = useTerminalUiStateStore((state) => state.setTerminalHeight);
+  const storeSetTerminalMaximized = useTerminalUiStateStore((state) => state.setTerminalMaximized);
   const storeSplitTerminal = useTerminalUiStateStore((state) => state.splitTerminal);
   const storeSplitTerminalVertical = useTerminalUiStateStore(
     (state) => state.splitTerminalVertical,
@@ -193,6 +194,9 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
 
   const setTerminalHeight = (height: number) => {
     storeSetTerminalHeight(threadRef, height);
+  };
+  const toggleTerminalMaximized = () => {
+    storeSetTerminalMaximized(threadRef, !terminalUiState.terminalMaximized);
   };
 
   const launchDrawerTerminal = (place: (terminalId: string) => void) => {
@@ -274,6 +278,8 @@ export const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerm
           onActiveTerminalChange={activateTerminal}
           onCloseTerminal={closeTerminal}
           onHeightChange={setTerminalHeight}
+          maximized={terminalUiState.terminalMaximized === true}
+          onToggleMaximized={toggleTerminalMaximized}
           onAddTerminalContext={handleAddTerminalContext}
           terminalLabelsById={terminalLabelsById}
           terminalLaunchLocationsById={terminalLaunchLocationsById}

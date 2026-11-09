@@ -13,6 +13,8 @@ import {
   type TerminalSessionState,
 } from "@t3tools/client-runtime/state/terminal";
 import {
+  Maximize2,
+  Minimize2,
   Plus,
   Square,
   SquareSplitHorizontal,
@@ -70,7 +72,9 @@ import {
   isTerminalNewShortcut,
   isTerminalSplitShortcut,
   isTerminalSplitVerticalShortcut,
+  isTerminalToggleMaximizedShortcut,
   isTerminalToggleShortcut,
+  shortcutLabelForCommand,
   terminalDeleteShortcutData,
   terminalNavigationShortcutData,
 } from "../keybindings";
@@ -116,6 +120,15 @@ interface DrawerLayout {
   chatColumnHeight?: number;
   headerHeight?: number;
   composerHeight?: number;
+}
+
+function resolveTerminalDrawerFillHeight(input: DrawerLayout): number {
+  const reserved = (input.headerHeight ?? 0) + (input.composerHeight ?? 0);
+  const available =
+    input.chatColumnHeight === undefined
+      ? input.viewportHeight - reserved
+      : input.chatColumnHeight - reserved;
+  return Math.max(MIN_DRAWER_HEIGHT, available);
 }
 
 function resolveTerminalDrawerMaxHeight(input: DrawerLayout): number {
@@ -1007,6 +1020,7 @@ function TerminalSessionViewport({
         }
         if (
           isTerminalToggleShortcut(event, currentKeybindings, options) ||
+          isTerminalToggleMaximizedShortcut(event, currentKeybindings, options) ||
           isTerminalSplitShortcut(event, currentKeybindings, options) ||
           isTerminalSplitVerticalShortcut(event, currentKeybindings, options) ||
           isTerminalNewShortcut(event, currentKeybindings, options) ||
@@ -1247,6 +1261,9 @@ interface ThreadTerminalDrawerProps {
   onActiveTerminalChange: (terminalId: string) => void;
   onCloseTerminal: (terminalId: string, threadRef?: ScopedThreadRef) => void;
   onHeightChange: (height: number) => void;
+  /** Fills the thread column. The sidebar and right panel stay in place. */
+  maximized?: boolean;
+  onToggleMaximized?: () => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   keybindings: ResolvedKeybindingsConfig;
   terminalLabelsById?: ReadonlyMap<string, string>;
@@ -1294,6 +1311,25 @@ function TerminalActionButton({
         {label}
       </PopoverPopup>
     </Popover>
+  );
+}
+
+function TerminalMaximizeButton({
+  maximized,
+  label,
+  className,
+  onClick,
+}: {
+  maximized: boolean;
+  label: string;
+  className: string;
+  onClick: () => void;
+}) {
+  const Icon = maximized ? Minimize2 : Maximize2;
+  return (
+    <TerminalActionButton className={className} onClick={onClick} label={label}>
+      <Icon className="size-3.25" />
+    </TerminalActionButton>
   );
 }
 
@@ -1503,6 +1539,8 @@ export default function ThreadTerminalDrawer({
   onActiveTerminalChange,
   onCloseTerminal,
   onHeightChange,
+  maximized = false,
+  onToggleMaximized,
   onAddTerminalContext,
   keybindings,
   terminalLabelsById,
@@ -1518,8 +1556,11 @@ export default function ThreadTerminalDrawer({
   );
   const drawerRef = useRef<HTMLElement | null>(null);
   const [drawerLayout, setDrawerLayout] = useState(() => readDrawerLayout(null));
-  const maxDrawerHeight = resolveTerminalDrawerMaxHeight({ ...drawerLayout, composerHeight });
-  const drawerHeight = clampDrawerHeight(height, maxDrawerHeight);
+  const drawerLayoutWithComposer = { ...drawerLayout, composerHeight };
+  const maxDrawerHeight = resolveTerminalDrawerMaxHeight(drawerLayoutWithComposer);
+  const fillHeight = resolveTerminalDrawerFillHeight(drawerLayoutWithComposer);
+  const heightLimit = maximized ? fillHeight : maxDrawerHeight;
+  const drawerHeight = maximized ? fillHeight : clampDrawerHeight(height, maxDrawerHeight);
   // A drag only writes the drawer's style; the store hears the height once, at
   // pointerup. The custom property outranks the rendered height while it is set.
   const resizeStateRef = useRef<{
@@ -1676,6 +1717,20 @@ export default function ThreadTerminalDrawer({
   const closeTerminalActionLabel = closeShortcutLabel
     ? `Close Terminal (${closeShortcutLabel})`
     : "Close Terminal";
+  const maximizeShortcutLabel =
+    !isPanel && onToggleMaximized
+      ? shortcutLabelForCommand(keybindings, "terminal.toggleMaximized", {
+          context: { terminalFocus: true, terminalOpen: true },
+        })
+      : null;
+  const maximizeTerminalActionLabel = maximized
+    ? maximizeShortcutLabel
+      ? `Restore terminal size (${maximizeShortcutLabel})`
+      : "Restore terminal size"
+    : maximizeShortcutLabel
+      ? `Maximize terminal (${maximizeShortcutLabel})`
+      : "Maximize terminal";
+  const showMaximizeControl = !isPanel && onToggleMaximized !== undefined;
   const onSplitTerminalAction = () => {
     if (!canOperateTerminal || hasReachedSplitLimit) return;
     onSplitTerminal();
@@ -1717,7 +1772,7 @@ export default function ThreadTerminalDrawer({
     event.preventDefault();
     const clampedHeight = clampDrawerHeight(
       resizeState.startHeight + (resizeState.startY - event.clientY),
-      maxDrawerHeight,
+      heightLimit,
     );
     if (clampedHeight === resizeState.height) {
       return;
@@ -1735,8 +1790,10 @@ export default function ThreadTerminalDrawer({
     }
     resizeState.drawer?.style.removeProperty(DRAG_HEIGHT_PROPERTY);
     // A drag that ends where it started keeps the stored preference, which may
-    // be taller than the capped height the drag started from.
-    if (resizeState.height === resizeState.startHeight || resizeState.height === height) return;
+    // be taller than the capped height the drag started from. Dragging a
+    // maximized drawer stores the new height and leaves maximize.
+    if (resizeState.height === resizeState.startHeight) return;
+    if (!maximized && resizeState.height === height) return;
     onHeightChange(resizeState.height);
   };
 
@@ -1755,9 +1812,12 @@ export default function ThreadTerminalDrawer({
       drawerLayoutRef.current = layout;
       const resizeState = resizeStateRef.current;
       if (resizeState) {
+        const liveLayout = { ...layout, composerHeight };
         const liveHeight = clampDrawerHeight(
           resizeState.height,
-          resolveTerminalDrawerMaxHeight({ ...layout, composerHeight }),
+          maximized
+            ? resolveTerminalDrawerFillHeight(liveLayout)
+            : resolveTerminalDrawerMaxHeight(liveLayout),
         );
         if (liveHeight !== resizeState.height) {
           resizeState.height = liveHeight;
@@ -1797,6 +1857,7 @@ export default function ThreadTerminalDrawer({
         {...(!isPanel && visible ? terminalArea : {})}
         data-thread-terminal-drawer
         data-terminal-owner={isPanel ? "right-panel" : "drawer"}
+        data-terminal-maximized={!isPanel && maximized ? "true" : "false"}
         className={cn(
           "relative flex min-w-0 flex-col overflow-hidden bg-background",
           isPanel ? "h-full flex-1" : "z-45 shrink-0 border-t border-border/80",
@@ -1834,6 +1895,7 @@ export default function ThreadTerminalDrawer({
       {...(!isPanel && visible ? terminalArea : {})}
       data-thread-terminal-drawer
       data-terminal-owner={isPanel ? "right-panel" : "drawer"}
+      data-terminal-maximized={!isPanel && maximized ? "true" : "false"}
       className={cn(
         "relative flex min-w-0 flex-col overflow-hidden bg-background",
         isPanel ? "h-full flex-1" : "z-45 shrink-0 border-t border-border/80",
@@ -1854,6 +1916,17 @@ export default function ThreadTerminalDrawer({
       {!hasTerminalSidebar && (
         <div className="pointer-events-none absolute right-2 top-2 z-20">
           <div className="pointer-events-auto inline-flex items-center overflow-hidden rounded-md border border-border/80 bg-background shadow-xs">
+            {showMaximizeControl ? (
+              <>
+                <TerminalMaximizeButton
+                  maximized={maximized}
+                  className="p-1 text-foreground/90 transition-colors hover:bg-accent"
+                  onClick={() => onToggleMaximized?.()}
+                  label={maximizeTerminalActionLabel}
+                />
+                <div className="h-4 w-px bg-border/80" />
+              </>
+            ) : null}
             <TerminalActionButton
               disabled={!canOperateTerminal}
               className={`p-1 text-foreground/90 transition-colors ${
@@ -1930,9 +2003,19 @@ export default function ThreadTerminalDrawer({
             <aside className="flex w-36 min-w-36 flex-col border border-border/70 bg-muted/10">
               <div className="flex h-[22px] items-stretch justify-end border-b border-border/70">
                 <div className="inline-flex h-full items-stretch">
+                  {showMaximizeControl ? (
+                    <TerminalMaximizeButton
+                      maximized={maximized}
+                      className="inline-flex h-full items-center px-1 text-foreground/90 transition-colors hover:bg-accent/70"
+                      onClick={() => onToggleMaximized?.()}
+                      label={maximizeTerminalActionLabel}
+                    />
+                  ) : null}
                   <TerminalActionButton
                     disabled={!canOperateTerminal}
                     className={`inline-flex h-full items-center px-1 text-foreground/90 transition-colors ${
+                      showMaximizeControl ? "border-l border-border/70 " : ""
+                    }${
                       hasReachedSplitLimit
                         ? "cursor-not-allowed opacity-64 hover:bg-transparent"
                         : "hover:bg-accent/70"
